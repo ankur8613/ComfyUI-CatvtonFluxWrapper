@@ -1,17 +1,14 @@
 import os
 import numpy as np
-
 import torch
 from torchvision import transforms
 from .pipeline_flux_fill import FluxFillPipeline
-
 import comfy.model_management as mm
 from .utils import convert_diffusers_flux_lora
 
 script_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class LoadCatvtonFlux:
-    
     RETURN_TYPES = ("CatvtonFluxModel",)
     FUNCTION = "load_catvton_flux"
     CATEGORY = "CatvtonFluxWrapper"
@@ -19,47 +16,52 @@ class LoadCatvtonFlux:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {
-            },
-        } 
-    
+            "required": {},
+        }
+
     def load_catvton_flux(self):
         load_device = mm.text_encoder_device()
         offload_device = mm.text_encoder_offload_device()
 
         print("Start loading LoRA weights")
-        state_dict, network_alphas = FluxFillPipeline.lora_state_dict(
+        lora_state_dict, network_alphas = FluxFillPipeline.lora_state_dict(
             pretrained_model_name_or_path_or_dict="/home/ubuntu/user_data/comfyui/models/loras",
             weight_name="pytorch_lora_weights.safetensors",
             return_alphas=True
         )
-        is_correct_format = all("lora" in key or "dora_scale" in key for key in state_dict.keys())
+        is_correct_format = all("lora" in key or "dora_scale" in key for key in lora_state_dict.keys())
         if not is_correct_format:
             raise ValueError("Invalid LoRA checkpoint.")
-        
-        print('Loading diffusion model ...')
-        pipe = FluxFillPipeline.from_pretrained(
-            pretrained_model_name_or_path="/pre_models/models/unet/flux1-fill-dev.safetensors",
-            torch_dtype=torch.bfloat16
+
+        print("Loading diffusion model ...")
+        model_path = "/pre_models/models/unet/flux1-fill-dev.safetensors"
+        state_dict = torch.load(model_path, map_location=load_device)
+
+        # Initialize the pipeline manually
+        pipe = FluxFillPipeline(
+            transformer=None  # Replace with required architecture if necessary
         ).to(load_device)
-        
+
+        # Load weights into the pipeline
+        pipe.load_state_dict(state_dict)
+        pipe.transformer.to(torch.bfloat16)
+
+        # Load LoRA weights into the pipeline's transformer
         FluxFillPipeline.load_lora_into_transformer(
-            state_dict=state_dict,
+            state_dict=lora_state_dict,
             network_alphas=network_alphas,
             transformer=pipe.transformer,
         )
         pipe.transformer.to(torch.bfloat16)
-        print('Loading Finished!')
+        print("Loading Finished!")
 
         model = {"pipe": pipe}
         return (model,)
 
 
 class CatvtonFluxSampler:
-    
     RETURN_TYPES = ("IMAGE", "IMAGE",)
     RETURN_NAMES = ("TryonResult", "GarmentResult",)
-
     FUNCTION = "sample"
     CATEGORY = "CatvtonFluxWrapper"
 
@@ -79,16 +81,16 @@ class CatvtonFluxSampler:
                 "height": ("INT", {"default": 1024}),
                 "keep_in_GPU": ("BOOLEAN", {"default": False}),
             },
-        } 
-    
+        }
+
     def sample(self, CatvtonFluxModel, prompt, image, mask, garment, steps=30, guidance_scale=30.0, seed=-1, width=768, height=1024, keep_in_GPU=False):
         load_device = mm.text_encoder_device()
         offload_device = mm.text_encoder_offload_device()
 
         pipe = CatvtonFluxModel["pipe"]
 
-        # check if the model is in the right device
-        if not pipe.transformer.device == load_device:
+        # Check if the model is in the right device
+        if pipe.transformer.device != load_device:
             pipe.transformer.to(load_device)
 
         size = (width, height)
@@ -102,7 +104,7 @@ class CatvtonFluxSampler:
         mask = mask[:, None, ...]
         garment = garment.permute(0, 3, 1, 2)
 
-        # Transform images using the new preprocessing
+        # Transform images
         image = transform(image)
         garment = transform(garment)
 
@@ -142,7 +144,6 @@ class CatvtonFluxSampler:
 
 
 class LoadCatvtonFluxLoRA:
-    
     RETURN_TYPES = ("MODEL",)
     FUNCTION = "load_catvton_flux_lora"
     CATEGORY = "CatvtonFluxWrapper"
@@ -153,8 +154,8 @@ class LoadCatvtonFluxLoRA:
             "required": {
                 "MODEL": ("MODEL",),
             },
-        } 
-    
+        }
+
     def load_catvton_flux_lora(self, MODEL):
         load_device = mm.text_encoder_device()
         offload_device = mm.text_encoder_offload_device()
@@ -169,24 +170,23 @@ class LoadCatvtonFluxLoRA:
         if not is_correct_format:
             raise ValueError("Invalid LoRA checkpoint.")
         
-        print('Start converting the lora ...')
+        print("Start converting the LoRA ...")
         lora_sd = convert_diffusers_flux_lora(state_dict, "")
 
-        print('Start combining the model ...')
+        print("Start combining the model ...")
         state_dict = MODEL.model.diffusion_model.state_dict()
         for key, value in state_dict.items():
             if key in lora_sd:
                 state_dict[key] += lora_sd[key].to(load_device)
 
         MODEL.model.diffusion_model.load_state_dict(state_dict)
+        
         return (MODEL,)
 
 
 class ModelPrinter:
-    
     RETURN_TYPES = ("MODEL", )
     RETURN_NAMES = ("MODEL", )
-
     FUNCTION = "print_model"
     CATEGORY = "CatvtonFluxWrapper"
 
@@ -196,8 +196,8 @@ class ModelPrinter:
             "required": {
                 "MODEL": ("MODEL",),
             },
-        } 
-    
+        }
+
     def print_model(self, MODEL):
         state_dict = MODEL.model.diffusion_model.state_dict()
         for key, value in state_dict.items():
