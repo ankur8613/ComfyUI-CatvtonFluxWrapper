@@ -34,7 +34,7 @@ class LoadCatvtonFlux:
             raise ValueError("Invalid LoRA checkpoint.")
 
         print("Loading diffusion model ...")
-        model_path = "/pre_models/models/unet/flux1-fill-dev.safetensors"
+        model_path = "/home/ubuntu/pre_models/models/unet/flux1-fill-dev.safetensors"
         state_dict = torch.load(model_path, map_location=load_device)
 
         # Initialize the pipeline manually
