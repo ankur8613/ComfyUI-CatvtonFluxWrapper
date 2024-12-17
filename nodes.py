@@ -35,7 +35,9 @@ class LoadCatvtonFlux:
 
         print("Loading diffusion model ...")
         model_path = "/home/ubuntu/pre_models/models/unet/flux1-fill-dev.safetensors"
-        state_dict = torch.load(model_path, map_location=load_device)
+        from safetensors.torch import load_file
+        state_dict = load_file(model_path)
+
 
         # Initialize the pipeline manually
         pipe = FluxFillPipeline(
