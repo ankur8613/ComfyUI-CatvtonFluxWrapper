@@ -8,9 +8,7 @@ from .pipeline_flux_fill import FluxFillPipeline
 import comfy.model_management as mm
 from .utils import convert_diffusers_flux_lora
 
-# Define the directory where models will be downloaded
-MODEL_DIRECTORY = "/home/ubuntu/user_data/comfyui/models/luts"
-os.makedirs(MODEL_DIRECTORY, exist_ok=True)
+script_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class LoadCatvtonFlux:
     
@@ -21,41 +19,37 @@ class LoadCatvtonFlux:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {},
+            "required": {
+            },
         } 
     
     def load_catvton_flux(self):
-
         load_device = mm.text_encoder_device()
         offload_device = mm.text_encoder_offload_device()
 
-        print("Start downloading and loading LoRA weights")
-        lora_path = FluxFillPipeline.lora_state_dict(
-            pretrained_model_name_or_path_or_dict=os.path.join(
-                MODEL_DIRECTORY, "xiaozaa/catvton-flux-lora-alpha"
-            ),
+        print("Start loading LoRA weights")
+        state_dict, network_alphas = FluxFillPipeline.lora_state_dict(
+            pretrained_model_name_or_path_or_dict="/home/ubuntu/user_data/comfyui/models/loras",
             weight_name="pytorch_lora_weights.safetensors",
             return_alphas=True
         )
-        state_dict, network_alphas = lora_path
-
         is_correct_format = all("lora" in key or "dora_scale" in key for key in state_dict.keys())
         if not is_correct_format:
             raise ValueError("Invalid LoRA checkpoint.")
-
-        print("Loading diffusion model...")
+        
+        print('Loading diffusion model ...')
         pipe = FluxFillPipeline.from_pretrained(
-            os.path.join(MODEL_DIRECTORY, "black-forest-labs/FLUX.1-Fill-dev"),
+            pretrained_model_name_or_path="/pre_models/models/unet/flux1-fill-dev.safetensors",
             torch_dtype=torch.bfloat16
         ).to(load_device)
-
+        
         FluxFillPipeline.load_lora_into_transformer(
             state_dict=state_dict,
             network_alphas=network_alphas,
             transformer=pipe.transformer,
         )
         pipe.transformer.to(torch.bfloat16)
-        print("Loading Finished!")
+        print('Loading Finished!')
 
         model = {"pipe": pipe}
         return (model,)
@@ -93,7 +87,7 @@ class CatvtonFluxSampler:
 
         pipe = CatvtonFluxModel["pipe"]
 
-        # Check if the model is in the right device
+        # check if the model is in the right device
         if not pipe.transformer.device == load_device:
             pipe.transformer.to(load_device)
 
@@ -146,6 +140,7 @@ class CatvtonFluxSampler:
 
         return (tryon_result, garment_result,)
 
+
 class LoadCatvtonFluxLoRA:
     
     RETURN_TYPES = ("MODEL",)
@@ -157,17 +152,16 @@ class LoadCatvtonFluxLoRA:
         return {
             "required": {
                 "MODEL": ("MODEL",),
-        },
-    } 
+            },
+        } 
     
     def load_catvton_flux_lora(self, MODEL):
-
         load_device = mm.text_encoder_device()
         offload_device = mm.text_encoder_offload_device()
 
         print("Start loading LoRA weights")
         state_dict, _ = FluxFillPipeline.lora_state_dict(
-            pretrained_model_name_or_path_or_dict="xiaozaa/catvton-flux-lora-alpha",     ## The tryon Lora weights
+            pretrained_model_name_or_path_or_dict="/pre_models/models/unet",
             weight_name="pytorch_lora_weights.safetensors",
             return_alphas=True
         )
@@ -185,8 +179,8 @@ class LoadCatvtonFluxLoRA:
                 state_dict[key] += lora_sd[key].to(load_device)
 
         MODEL.model.diffusion_model.load_state_dict(state_dict)
-        
         return (MODEL,)
+
 
 class ModelPrinter:
     
@@ -201,8 +195,8 @@ class ModelPrinter:
         return {
             "required": {
                 "MODEL": ("MODEL",),
-        },
-    } 
+            },
+        } 
     
     def print_model(self, MODEL):
         state_dict = MODEL.model.diffusion_model.state_dict()
