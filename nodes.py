@@ -8,7 +8,9 @@ from .pipeline_flux_fill import FluxFillPipeline
 import comfy.model_management as mm
 from .utils import convert_diffusers_flux_lora
 
-script_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Define the directory where models will be downloaded
+MODEL_DIRECTORY = "/path/to/your/folder"
+os.makedirs(MODEL_DIRECTORY, exist_ok=True)
 
 class LoadCatvtonFlux:
     
@@ -19,39 +21,43 @@ class LoadCatvtonFlux:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {
-        },
-    } 
+            "required": {},
+        } 
     
     def load_catvton_flux(self):
 
         load_device = mm.text_encoder_device()
         offload_device = mm.text_encoder_offload_device()
 
-        print("Start loading LoRA weights")
-        state_dict, network_alphas = FluxFillPipeline.lora_state_dict(
-            pretrained_model_name_or_path_or_dict="xiaozaa/catvton-flux-lora-alpha",     ## The tryon Lora weights
+        print("Start downloading and loading LoRA weights")
+        lora_path = FluxFillPipeline.lora_state_dict(
+            pretrained_model_name_or_path_or_dict=os.path.join(
+                MODEL_DIRECTORY, "xiaozaa/catvton-flux-lora-alpha"
+            ),
             weight_name="pytorch_lora_weights.safetensors",
             return_alphas=True
         )
+        state_dict, network_alphas = lora_path
+
         is_correct_format = all("lora" in key or "dora_scale" in key for key in state_dict.keys())
         if not is_correct_format:
             raise ValueError("Invalid LoRA checkpoint.")
-        print('Loading diffusion model ...')
+
+        print("Loading diffusion model...")
         pipe = FluxFillPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-Fill-dev",
+            os.path.join(MODEL_DIRECTORY, "black-forest-labs/FLUX.1-Fill-dev"),
             torch_dtype=torch.bfloat16
         ).to(load_device)
+
         FluxFillPipeline.load_lora_into_transformer(
             state_dict=state_dict,
             network_alphas=network_alphas,
             transformer=pipe.transformer,
         )
         pipe.transformer.to(torch.bfloat16)
-        print('Loading Finished!')
+        print("Loading Finished!")
 
         model = {"pipe": pipe}
-        
         return (model,)
 
 
@@ -78,8 +84,8 @@ class CatvtonFluxSampler:
                 "width": ("INT", {"default": 768}),
                 "height": ("INT", {"default": 1024}),
                 "keep_in_GPU": ("BOOLEAN", {"default": False}),
-        },
-    } 
+            },
+        } 
     
     def sample(self, CatvtonFluxModel, prompt, image, mask, garment, steps=30, guidance_scale=30.0, seed=-1, width=768, height=1024, keep_in_GPU=False):
         load_device = mm.text_encoder_device()
@@ -87,11 +93,11 @@ class CatvtonFluxSampler:
 
         pipe = CatvtonFluxModel["pipe"]
 
-        # check if the model is in the right device
+        # Check if the model is in the right device
         if not pipe.transformer.device == load_device:
             pipe.transformer.to(load_device)
 
-        size=(width, height)
+        size = (width, height)
 
         # Add transform
         transform = transforms.Compose([
