@@ -9,7 +9,7 @@ import comfy.model_management as mm
 from .utils import convert_diffusers_flux_lora
 
 # Define the directory where models will be downloaded
-MODEL_DIRECTORY = "/path/to/your/folder"
+MODEL_DIRECTORY = "/home/ubuntu/user_data/comfyui/models/luts"
 os.makedirs(MODEL_DIRECTORY, exist_ok=True)
 
 class LoadCatvtonFlux:
